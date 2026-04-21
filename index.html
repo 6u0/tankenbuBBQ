@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>提出状況照会</title>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@700;900&display=swap" rel="stylesheet">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body { background-color: #f0f0f0; margin: 0; padding: 0; display: flex; flex-direction: column; align-items: center; font-family: 'Noto Sans JP', sans-serif; }
+    .site-header { width: 100%; background-color: #000; color: #fff; padding: 15px 0; text-align: center; font-size: 16px; font-weight: 900; letter-spacing: 0.1em; position: sticky; top: 0; z-index: 100; }
+    .main-content { width: 100%; max-width: 1000px; display: flex; flex-direction: column; gap: 30px; padding: 20px; box-sizing: border-box; }
+    .chart-canvas { width: 100%; background-color: #ffffff; padding: 30px 20px; display: flex; flex-direction: column; box-sizing: border-box; box-shadow: 0 10px 30px rgba(0,0,0,0.05); }
+    .chart-header { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 3px solid #000; padding-bottom: 8px; margin-bottom: 25px; }
+    .chart-title { font-size: 18px; font-weight: 900; margin: 0; color: #000; }
+    .chart-meta { font-size: 13px; font-weight: 700; color: #000; }
+    .form-grid { display: grid; grid-template-columns: 1fr; gap: 16px; }
+    .form-label { display: block; margin: 0 0 8px; font-size: 13px; font-weight: 900; letter-spacing: 0.04em; color: #000; }
+    .form-input { width: 100%; height: 48px; border: 1px solid #d6d6d6; background: #fff; color: #000; font-size: 20px; font-weight: 900; padding: 0 14px; box-sizing: border-box; }
+    .form-input:focus { outline: 2px solid #000; outline-offset: -2px; border-color: #000; }
+    .action-btn { margin-top: 8px; height: 48px; border: none; background: #000; color: #fff; font-size: 14px; font-weight: 900; letter-spacing: 0.08em; cursor: pointer; }
+    .action-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+    .result-box { margin-top: 16px; padding: 14px 16px; border: 1px solid #e6e6e6; background: #fafafa; min-height: 52px; font-size: 14px; font-weight: 700; line-height: 1.7; color: #000; }
+    .result-box.ok { border-color: #0b7a3c; color: #0b7a3c; background: #f4fff8; }
+    .result-box.ng { border-color: #ad122a; color: #ad122a; background: #fff7f9; }
+    .site-footer { margin: 40px 0 30px 0; font-size: 11px; color: #999; font-weight: 700; }
+    .login-bar { width: 100%; max-width: 1000px; display: flex; justify-content: space-between; align-items: center; background: #fff; padding: 14px 20px; box-sizing: border-box; box-shadow: 0 10px 30px rgba(0,0,0,0.05); margin: 20px 0 0 0; font-weight: 900; }
+    .login-name { font-size: 12px; letter-spacing: 0.08em; color: #999; }
+    .login-btn { display: inline-block; padding: 10px 20px; background: #000; color: #fff; font-size: 12px; text-decoration: none; letter-spacing: 0.08em; }
+    @media (min-width: 768px) {
+      .chart-canvas { padding: 40px 60px; }
+      .chart-title { font-size: 24px; }
+      .form-grid { grid-template-columns: 1fr 1fr; gap: 18px; }
+    }
+  </style>
+</head>
+<body>
+  <header class="site-header">探検部新歓BBQ</header>
+
+  <main class="main-content">
+    <section class="chart-canvas">
+      <div class="chart-header">
+        <h1 class="chart-title">追加フォーム提出状況照会</h1>
+        <div class="chart-meta">学籍番号完全一致 + 電話番号下2桁</div>
+      </div>
+
+      <div class="form-grid">
+        <div>
+          <label class="form-label" for="studentId">学籍番号（完全一致）</label>
+          <input id="studentId" class="form-input" type="text" inputmode="text" maxlength="20" placeholder="例: X26000">
+        </div>
+        <div>
+          <label class="form-label" for="phoneLast2">電話番号（下2桁）</label>
+          <input id="phoneLast2" class="form-input" type="text" inputmode="numeric" maxlength="2" placeholder="例: 78">
+        </div>
+      </div>
+
+      <button id="submitBtn" class="action-btn" type="button">照会する</button>
+      <div id="result" class="result-box">学籍番号と電話番号下2桁を入力して照会してください。</div>
+    </section>
+  </main>
+
+  <script src="https://cdn.auth0.com/js/auth0-spa-js/2.0/auth0-spa-js.production.js"></script>
+  <script>
+    const GAS_URL = "https://script.google.com/macros/s/AKfycbzlNU_fZ-mktPt_IIlBx2uRvZzwq7GpokGebyRTmXHMB0CdME8ju0DDgZool9pzN7Yv/exec";
+    const studentIdEl = document.getElementById("studentId");
+    const phoneLast2El = document.getElementById("phoneLast2");
+    const submitBtn = document.getElementById("submitBtn");
+    const resultEl = document.getElementById("result");
+
+    function sanitizeTwoDigits(value) {
+      return String(value || "").replace(/\D/g, "").slice(0, 2);
+    }
+    function sanitizeStudentId(value) {
+      return String(value || "").replace(/\s/g, "").slice(0, 20);
+    }
+
+    function showResult(type, text) {
+      resultEl.className = "result-box";
+      if (type) resultEl.classList.add(type);
+      resultEl.textContent = text;
+    }
+
+    studentIdEl.addEventListener("input", () => {
+      studentIdEl.value = sanitizeStudentId(studentIdEl.value);
+    });
+
+    phoneLast2El.addEventListener("input", () => {
+      phoneLast2El.value = sanitizeTwoDigits(phoneLast2El.value);
+    });
+
+    submitBtn.addEventListener("click", async () => {
+      const studentId = sanitizeStudentId(studentIdEl.value);
+      const phoneLast2 = sanitizeTwoDigits(phoneLast2El.value);
+
+      if (!studentId || phoneLast2.length !== 2) {
+        showResult("ng", "学籍番号（完全一致）と電話番号下2桁を入力してください。");
+        return;
+      }
+
+      submitBtn.disabled = true;
+      showResult("", "照会中...");
+
+      try {
+        const query = new URLSearchParams({
+          action: "check",
+          studentId: studentId,
+          phoneLast2: phoneLast2
+        });
+        const res = await fetch(`${GAS_URL}?${query.toString()}`, { method: "GET" });
+        const data = await res.json();
+        submitBtn.disabled = false;
+
+        if (!data || !data.ok) {
+          showResult("ng", (data && data.message) || "照会に失敗しました。");
+          return;
+        }
+        showResult(data.submitted ? "ok" : "ng", data.message);
+      } catch (err) {
+        submitBtn.disabled = false;
+        showResult("ng", "エラーが発生しました: " + (err && err.message ? err.message : err));
+      }
+    });
+
+    (async () => {
+      const nameEl = document.getElementById('login-name');
+      if (!nameEl) return;
+
+      const configUrl = `${window.location.origin}/tankenbu/login/auth_config.json`;
+      try {
+        const res = await fetch(configUrl);
+        if (!res.ok) return;
+        const config = await res.json();
+
+        const createClient = window.createAuth0Client || (window.auth0 && window.auth0.createAuth0Client);
+        if (!createClient) return;
+
+        const auth0 = await createClient({
+          domain: config.domain,
+          clientId: config.clientId,
+          cacheLocation: 'localstorage',
+          useRefreshTokens: true,
+          useRefreshTokensFallback: true,
+          authorizationParams: {
+            redirect_uri: `${window.location.origin}/tankenbu/login/`
+          }
+        });
+
+        const isAuthenticated = await auth0.isAuthenticated();
+        if (!isAuthenticated) return;
+
+        const profile = await auth0.getUser();
+        const claims = await auth0.getIdTokenClaims();
+        const displayName = (claims && claims['https://tankenbu.jp/display_name']) ||
+          (profile && (profile.name || profile.email));
+        if (displayName) {
+          nameEl.textContent = displayName;
+        }
+      } catch (e) {
+        nameEl.textContent = '未ログイン';
+      }
+    })();
+  </script>
+</body>
+</html>
